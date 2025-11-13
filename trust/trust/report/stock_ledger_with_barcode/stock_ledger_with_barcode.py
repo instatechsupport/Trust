@@ -490,54 +490,49 @@ def get_items(filters):
     return items
 
 
-
 def get_item_details(items, sl_entries, include_uom):
-    """
-    Returns a dictionary of item details including barcode and optional UOM conversion.
-    """
+    from collections import defaultdict
+
     item_details = {}
 
-    # If no items passed, get unique items from stock ledger entries
     if not items:
         items = list(set(d.item_code for d in sl_entries))
 
     if not items:
         return item_details
 
-    # SQL query to fetch item details and group barcodes
-    placeholders = ", ".join(["%s"] * len(items))
-    query = f"""
-        SELECT
-            item.name,
-            item.item_name,
-            item.description,
-            item.item_group,
-            item.brand,
-            item.stock_uom,
-            COALESCE(GROUP_CONCAT(NULLIF(ibarcode.barcode, '')), '') AS barcode
-        FROM `tabItem` AS item
-        LEFT JOIN `tabItem Barcode` AS ibarcode
-            ON ibarcode.parent = item.name
-        WHERE item.name IN ({placeholders})
-        GROUP BY item.name
-    """
+    # Fetch item details
+    item_info = frappe.get_all(
+        "Item",
+        filters={"name": ["in", items]},
+        fields=["name", "item_name", "description", "item_group", "brand", "stock_uom"]
+    )
 
-    # Execute the query with proper parameter binding
-    res = frappe.db.sql(query, tuple(items), as_dict=True)
+    # Fetch barcodes
+    barcodes = frappe.get_all(
+        "Item Barcode",
+        filters={"parent": ["in", items]},
+        fields=["parent", "barcode"],
+        order_by="parent"
+    )
 
-    # If UOM conversion is requested, fetch conversion factor for each item
-    if include_uom:
-        for item in res:
+    barcode_map = defaultdict(list)
+    for b in barcodes:
+        if b.barcode:
+            barcode_map[b.parent].append(b.barcode)
+
+    for item in item_info:
+        item_code = item["name"]
+        item["item_barcode"] = ", ".join(barcode_map.get(item_code, []))
+        if include_uom:
             uom_cf = frappe.db.get_value(
                 "UOM Conversion Detail",
-                {"parent": item["name"], "uom": include_uom},
+                {"parent": item_code, "uom": include_uom},
                 "conversion_factor"
             )
-            item["conversion_factor"] = uom_cf
+            item["conversion_factor"] = uom_cf if uom_cf else 1.0
 
-    # Build dictionary keyed by item code
-    for item in res:
-        item_details[item["name"]] = item
+        item_details[item_code] = item
 
     return item_details
 
