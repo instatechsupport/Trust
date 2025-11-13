@@ -161,7 +161,7 @@ class StockBalanceReport:
 		_system_settings = frappe.get_cached_doc("System Settings")
 		with frappe.db.unbuffered_cursor():
 			if not self.filters.get("show_stock_ageing_data"):
-				self.sle_entries = self.sle_query.run(as_dict=True, as_iterator=True)
+				self.sle_entries = self.sle_query.run(as_dict=True) or []
 
 			for entry in self.sle_entries:
 				group_by_key = self.get_group_by_key(entry)
@@ -227,13 +227,14 @@ class StockBalanceReport:
 		qty_dict.val_rate = entry.valuation_rate
 		qty_dict.bal_qty += qty_diff
 		qty_dict.bal_val += value_diff
-    def get_item_barcode(self, item_code):
-    barcode = frappe.db.get_value(
-        "Item Barcode",
-        {"parent": item_code},
-        "barcode"
-    )
-    return barcode or ""
+	def get_item_barcode(self, item_code):
+		barcode = frappe.db.get_value(
+			"Item Barcode",
+			{"parent": item_code},
+			"barcode"
+		)
+		return barcode or ""
+
 	
 	def initialize_data(self, item_warehouse_map, group_by_key, entry):
 		opening_data = self.opening_data.get(group_by_key, {})
@@ -241,7 +242,7 @@ class StockBalanceReport:
 		item_warehouse_map[group_by_key] = frappe._dict(
 			{
 				"item_code": entry.item_code,
-				{"label": _("Item Barcode"), "fieldname": "item_barcode", "width": 150},
+				"item_barcode": self.get_item_barcode(entry.item_code),
 				"warehouse": entry.warehouse,
 				"item_group": entry.item_group,
 				"company": entry.company,
